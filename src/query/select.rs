@@ -8,10 +8,10 @@ pub struct Select {
 }
 
 impl Select {
-    pub fn new(table_name: &'static str, columns: Vec<Column>) -> Self {
+    pub fn new(columns: HashMap<&'static str, Vec<Column>>, tables_join: Vec<String>) -> Self {
         Self {
-            columns: HashMap::from([(table_name, columns)]),
-            tables_join: vec![table_name.to_owned()],
+            columns,
+            tables_join,
         }
     }
 }

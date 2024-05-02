@@ -1,46 +1,101 @@
 extern crate proc_macro;
 
-use proc_macro::TokenStream;
+use proc_macro2::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, Attribute, DeriveInput};
 
 /// # Panics
 /// Will panic if cant parse the input
-#[proc_macro_derive(Table)]
-pub fn table_derive(input: TokenStream) -> TokenStream {
-    let ast: syn::DeriveInput = syn::parse(input).expect("failed to parse the input");
-    let struct_name = &ast.ident;
+#[proc_macro_derive(Table, attributes(PrimaryKey, ForeignKey, table_name))]
+pub fn table_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
 
-    let syn::Data::Struct(ref data_struct) = ast.data else {
-        panic!("Binary derive only supports structs.")
+    let name = &ast.ident;
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
+
+    let table_name = get_attribute(&ast.attrs, "table_name")
+        .and_then(|attr| {
+            attr.parse_args::<syn::LitStr>()
+                .map(|lit_str| lit_str.value())
+                .ok()
+        })
+        .unwrap_or(name.to_string());
+
+    let (primary_keys, columns) = get_primary_keys_and_columns(&ast.data);
+
+    let identifiers_fn = quote! {
+        fn identifiers() -> Vec<Column> {
+            vec![#(#primary_keys),*]
+        }
     };
+    let table_name_fn = quote! {
+        fn table_name() -> &'static str {
+            #table_name
+        }
+    };
+    let columns_fn = quote! {
+        fn columns() -> Vec<Column> {
+            vec![#(#columns),*]
+        }
+    };
+    let references_fn = impl_references(&ast.data);
 
-    let mut field_declarations = Vec::new();
-
-    for field in &data_struct.fields {
-        let field_name = field
-            .ident
-            .as_ref()
-            .expect("Field must have an identifier")
-            .to_string();
-        //let field_type = &field.ty;
-
-        field_declarations.push(quote::quote! {
-            Column::new(formatcp!("{}",#field_name)),
-        });
-    }
-
-    let struct_name_str = struct_name.to_string();
-
-    quote::quote! {
-        impl Table for #struct_name {
-            fn table_name() -> &'static str {
-                formatcp!("{}",#struct_name_str)
-            }
-            fn columns() -> Vec<Column> {
-                vec![
-                    #(#field_declarations)*
-                ]
-            }
+    quote! {
+        impl #impl_generics Table for #name #ty_generics #where_clause {
+            #identifiers_fn
+            #table_name_fn
+            #columns_fn
+            #references_fn
         }
     }
     .into()
+}
+
+fn get_primary_keys_and_columns(data: &syn::Data) -> (Vec<TokenStream>, Vec<TokenStream>) {
+    let mut primary_keys = Vec::new();
+    let mut columns = Vec::new();
+
+    if let syn::Data::Struct(data_struct) = data {
+        for field in &data_struct.fields {
+            let field_name = field.ident.as_ref().expect("");
+
+            if get_attribute(&field.attrs, "PrimaryKey").is_some() {
+                primary_keys.push(quote! { Column::new(stringify!(#field_name)) });
+            }
+
+            columns.push(quote! { Column::new(stringify!(#field_name)) });
+        }
+    }
+
+    (primary_keys, columns)
+}
+
+fn get_attribute<'a>(
+    attrs: &'a [syn::Attribute],
+    attribute: &'static str,
+) -> Option<&'a Attribute> {
+    attrs.iter().find(|&attr| attr.path().is_ident(attribute))
+}
+
+fn impl_references(data: &syn::Data) -> TokenStream {
+    let mut references = Vec::new();
+
+    if let syn::Data::Struct(data_struct) = data {
+        for field in &data_struct.fields {
+            if get_attribute(&field.attrs, "ForeignKey").is_some() {
+                let field_type = &field.ty;
+                let field_name = field.ident.as_ref().expect("");
+
+                references.push(quote! {
+                    (stringify!(#field_name), #field_type::table_name(), #field_type::identifiers(), #field_type::columns())
+                });
+            }
+        }
+    }
+
+    quote! {
+        fn references() -> Vec<(&'static str, &'static str, Vec<Column>, Vec<Column>)> {
+            vec![#(#references),*]
+        }
+    }
 }
