@@ -1,0 +1,20 @@
+[package]
+name = "rust_query_tests"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lints.clippy]
+pedantic = "deny"
+missing-const-for-fn = "deny"
+unwrap-used = "deny"
+unused-enumerate-index = "deny"
+as-underscore = "deny"
+get-unwrap = "deny"
+str-to-string = "deny"
+too-many-lines = "deny"
+todo = "warn"
+
+[dependencies]
+rust_query = { path = "../lib" }

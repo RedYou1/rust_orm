@@ -1,9 +1,4 @@
-use crate::table::{Column, Queries, Table};
-use rust_query::Table;
-
-pub mod column;
-pub mod query;
-pub mod table;
+use rust_query::table::{Column, Queries, Table};
 
 #[derive(Table)]
 struct Test {

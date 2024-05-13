@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 pub use crate::column::Column;
+pub use rust_query_macro::Table;
 use crate::query::select::Select;
 
 pub trait Table {

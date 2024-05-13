@@ -8,6 +8,7 @@ pub struct Select {
 }
 
 impl Select {
+    #[must_use]
     pub fn new(columns: HashMap<&'static str, Vec<Column>>, tables_join: Vec<String>) -> Self {
         Self {
             columns,
