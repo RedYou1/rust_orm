@@ -23,29 +23,22 @@ pub fn table_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let (primary_keys, columns) = get_primary_keys_and_columns(&ast.data);
 
-    let identifiers_fn = quote! {
-        fn identifiers() -> Vec<Column> {
-            vec![#(#primary_keys),*]
-        }
-    };
-    let table_name_fn = quote! {
-        fn table_name() -> &'static str {
-            #table_name
-        }
-    };
-    let columns_fn = quote! {
-        fn columns() -> Vec<Column> {
-            vec![#(#columns),*]
-        }
-    };
-    let references_fn = impl_references(&ast.data);
+    let references = impl_references(&ast.data);
 
     quote! {
         impl #impl_generics Table for #name #ty_generics #where_clause {
-            #identifiers_fn
-            #table_name_fn
-            #columns_fn
-            #references_fn
+            fn identifiers() -> Vec<Column> {
+                vec![#(#primary_keys),*]
+            }
+            fn table_name() -> &'static str {
+                #table_name
+            }
+            fn columns() -> Vec<Column> {
+                vec![#(#columns),*]
+            }
+            fn references() -> Vec<(&'static str, &'static str, Vec<Column>, Vec<Column>)> {
+                vec![#(#references),*]
+            }
         }
     }
     .into()
@@ -58,12 +51,13 @@ fn get_primary_keys_and_columns(data: &syn::Data) -> (Vec<TokenStream>, Vec<Toke
     if let syn::Data::Struct(data_struct) = data {
         for field in &data_struct.fields {
             let field_name = field.ident.as_ref().expect("");
+            let foreign = get_attribute(&field.attrs, "ForeignKey").is_some();
 
             if get_attribute(&field.attrs, "PrimaryKey").is_some() {
-                primary_keys.push(quote! { Column::new(stringify!(#field_name)) });
+                primary_keys.push(quote! { Column::new(stringify!(#field_name), #foreign) });
             }
 
-            columns.push(quote! { Column::new(stringify!(#field_name)) });
+            columns.push(quote! { Column::new(stringify!(#field_name), #foreign) });
         }
     }
 
@@ -77,7 +71,7 @@ fn get_attribute<'a>(
     attrs.iter().find(|&attr| attr.path().is_ident(attribute))
 }
 
-fn impl_references(data: &syn::Data) -> TokenStream {
+fn impl_references(data: &syn::Data) -> Vec<TokenStream> {
     let mut references = Vec::new();
 
     if let syn::Data::Struct(data_struct) = data {
@@ -93,9 +87,5 @@ fn impl_references(data: &syn::Data) -> TokenStream {
         }
     }
 
-    quote! {
-        fn references() -> Vec<(&'static str, &'static str, Vec<Column>, Vec<Column>)> {
-            vec![#(#references),*]
-        }
-    }
+    references
 }

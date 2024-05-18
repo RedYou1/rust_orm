@@ -1,5 +1,5 @@
 [package]
-name = "rust_query_tests"
+name = "rust_query_mysql"
 version = "0.1.0"
 edition = "2021"
 
@@ -17,8 +17,6 @@ too-many-lines = "deny"
 todo = "warn"
 
 [dependencies]
-rust_query = { path = "../lib" }
-rust_query_mysql = { path = "../lib_mysql" }
+rust_query_macro_mysql = { path = "../macro_mysql" }
+const_format = "=0.2.32"
 mysql = "=24.0.0"
-dotenv = "=0.15.0"
-once_cell = "1.19.0"

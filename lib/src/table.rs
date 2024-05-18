@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 pub use crate::column::Column;
-pub use rust_query_macro::Table;
 use crate::query::select::Select;
+pub use rust_query_macro::Table;
 
 pub trait Table {
     fn identifiers() -> Vec<Column>;
@@ -45,9 +45,15 @@ impl<T: Table> Queries for T {
         joins.insert(0, T::table_name().to_owned());
 
         let mut columns = HashMap::with_capacity(others.len());
-        columns.insert(T::table_name(), T::columns());
+        columns.insert(
+            T::table_name(),
+            T::columns().into_iter().filter(|c| !c.foreign()).collect(),
+        );
         for (_, table_name, _, other_columns) in others {
-            columns.insert(table_name, other_columns);
+            columns.insert(
+                table_name,
+                other_columns.into_iter().filter(|c| !c.foreign()).collect(),
+            );
         }
 
         Select::new(columns, joins)

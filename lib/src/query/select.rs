@@ -25,7 +25,7 @@ impl ToString for Select {
                 .iter()
                 .flat_map(|(key, values)| values
                     .iter()
-                    .map(|value| format!("{}.{}", key, value.name()))
+                    .map(|value| format!("{}.{} AS {}_{}", key, value.name(), key, value.name()))
                     .collect::<Vec<String>>())
                 .collect::<Vec<String>>()
                 .join(", "),
