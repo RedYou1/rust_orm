@@ -1,3 +1,4 @@
+#[derive(Debug, PartialEq, Clone)]
 pub struct Column {
     name: &'static str,
     foreign: bool,

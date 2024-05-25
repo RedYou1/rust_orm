@@ -7,3 +7,7 @@ pub trait MySQLRow {
     where
         Self: Sized;
 }
+
+pub trait RowFlatten<T> {
+    fn row_flatten(&self) -> Vec<T>;
+}

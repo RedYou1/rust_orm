@@ -8,15 +8,17 @@ edition = "2021"
 [lints.clippy]
 pedantic = "deny"
 missing-const-for-fn = "deny"
-unwrap-used = "deny"
 unused-enumerate-index = "deny"
 as-underscore = "deny"
-get-unwrap = "deny"
 str-to-string = "deny"
 too-many-lines = "deny"
 todo = "warn"
+get-unwrap = "warn"
+unwrap-used = "warn"
+unwrap_in_result = "warn"
+map_unwrap_or = "warn"
 
 [dependencies]
 rust_query_macro_mysql = { path = "../macro_mysql" }
 const_format = "=0.2.32"
-mysql = "=24.0.0"
+mysql = "=25.0.1"

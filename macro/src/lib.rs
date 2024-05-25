@@ -1,8 +1,11 @@
 extern crate proc_macro;
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Literal, TokenStream};
 use quote::quote;
-use syn::{parse_macro_input, Attribute, DeriveInput};
+use rust_query_lib_macro::{
+    get_attribute, get_inner_type, FOREIGN_KEY, OPTION, PRIMARY_KEY, TABLE_NAME, VEC,
+};
+use syn::{parse_macro_input, punctuated::Punctuated, DeriveInput, Ident, Token};
 
 /// # Panics
 /// Will panic if cant parse the input
@@ -14,7 +17,7 @@ pub fn table_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let name = &ast.ident;
         let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
-        let table_name = get_attribute(&ast.attrs, "table_name")
+        let table_name = get_attribute(&ast.attrs, TABLE_NAME)
             .and_then(|attr| {
                 attr.parse_args::<syn::LitStr>()
                     .map(|lit_str| lit_str.value())
@@ -22,14 +25,19 @@ pub fn table_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             })
             .unwrap_or(name.to_string());
 
-        let (primary_keys, columns) = get_primary_keys_and_columns(data_struct);
+        let (primary_keys, eqs, columns) = get_primary_keys_and_columns(data_struct);
 
-        let references = impl_references(data_struct);
+        let references = impl_references(name, data_struct);
 
         quote! {
             impl #impl_generics Table for #name #ty_generics #where_clause {
                 fn identifiers() -> Vec<Column> {
                     vec![#(#primary_keys),*]
+                }
+                fn id_eq(&self, b: &Self) -> bool {
+                    let mut eq = true;
+                    #(#eqs)*
+                    eq
                 }
                 fn table_name() -> &'static str {
                     #table_name
@@ -50,29 +58,24 @@ pub fn table_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn get_primary_keys_and_columns(
     data_struct: &syn::DataStruct,
-) -> (Vec<TokenStream>, Vec<TokenStream>) {
+) -> (Vec<TokenStream>, Vec<TokenStream>, Vec<TokenStream>) {
     let mut primary_keys = Vec::new();
+    let mut eqs = Vec::new();
     let mut columns = Vec::new();
 
     for field in &data_struct.fields {
-        let field_name = field.ident.as_ref().expect("");
-        let foreign = get_attribute(&field.attrs, "ForeignKey").is_some();
+        let field_name = field.ident.as_ref().expect("Not in a Tuple");
+        let foreign = get_attribute(&field.attrs, FOREIGN_KEY).is_some();
 
-        if get_attribute(&field.attrs, "PrimaryKey").is_some() {
+        if get_attribute(&field.attrs, PRIMARY_KEY).is_some() {
             primary_keys.push(quote! { Column::new(stringify!(#field_name), #foreign) });
+            eqs.push(quote! { eq = eq && self.#field_name == b.#field_name; });
         }
 
         columns.push(quote! { Column::new(stringify!(#field_name), #foreign) });
     }
 
-    (primary_keys, columns)
-}
-
-fn get_attribute<'a>(
-    attrs: &'a [syn::Attribute],
-    attribute: &'static str,
-) -> Option<&'a Attribute> {
-    attrs.iter().find(|&attr| attr.path().is_ident(attribute))
+    (primary_keys, eqs, columns)
 }
 
 enum ReferenceJoin {
@@ -84,26 +87,51 @@ enum ReferenceJoin {
     MultipleOptionEmpty = 32,
 }
 
-fn impl_references(data_struct: &syn::DataStruct) -> Vec<TokenStream> {
+fn impl_references(name: &Ident, data_struct: &syn::DataStruct) -> Vec<TokenStream> {
     let mut references = Vec::new();
 
     for field in &data_struct.fields {
-        if get_attribute(&field.attrs, "ForeignKey").is_some() {
-            let field_type = &field.ty;
-            let field_name = field.ident.as_ref().expect("");
+        if let Some(att) = get_attribute(&field.attrs, FOREIGN_KEY).map(|attr| {
+            attr.parse_args_with(Punctuated::parse_terminated)
+                .map(|arr: Punctuated<Literal, Token![,]>| {
+                    let a = arr
+                        .into_iter()
+                        .map(|a: Literal| {
+                            let a = a.to_string();
+                            a.chars().skip(1).take(a.len() - 2).collect()
+                        })
+                        .collect::<Vec<String>>();
+                    assert!(
+                        !(a.is_empty() || a.len() % 2 == 1),
+                        "ForeignKey attribute has the alternate table_id and foreign_id"
+                    );
+                    a.chunks(2)
+                        .map(|chunk| {
+                            let a = format!("{};{}", chunk[0], chunk[1]);
+                            quote! {(#a).to_owned()}
+                        })
+                        .collect::<Vec<TokenStream>>()
+                })
+                .expect("Need the list of the table column")
+        }) {
+            let mut field_type = &field.ty;
 
             let join = match field_type {
                 syn::Type::Slice(ty) => {
-                    if get_inner_type("std::option::Option", ty.elem.as_ref()).is_some() {
+                    if let Some(ty) = get_inner_type(OPTION, ty.elem.as_ref()) {
+                        field_type = ty;
                         ReferenceJoin::OneOrNone
                     } else {
                         ReferenceJoin::ExaclyOne
                     }
                 }
                 syn::Type::Path(_) => {
-                    if let Some(ty) = get_inner_type("std::option::Option", field_type) {
-                        if let Some(ty2) = get_inner_type("alloc::vec::Vec", ty) {
-                            if get_inner_type("std::option::Option", ty2).is_some() {
+                    if let Some(ty) = get_inner_type(OPTION, field_type) {
+                        field_type = ty;
+                        if let Some(ty) = get_inner_type(VEC, field_type) {
+                            field_type = ty;
+                            if let Some(ty) = get_inner_type(OPTION, field_type) {
+                                field_type = ty;
                                 ReferenceJoin::MultipleOptionEmpty
                             } else {
                                 ReferenceJoin::MultipleEmpty
@@ -111,8 +139,10 @@ fn impl_references(data_struct: &syn::DataStruct) -> Vec<TokenStream> {
                         } else {
                             ReferenceJoin::OneOrNone
                         }
-                    } else if let Some(ty) = get_inner_type("alloc::vec::Vec", field_type) {
-                        if get_inner_type("std::option::Option", ty).is_some() {
+                    } else if let Some(ty) = get_inner_type(VEC, field_type) {
+                        field_type = ty;
+                        if let Some(ty) = get_inner_type(OPTION, field_type) {
+                            field_type = ty;
                             ReferenceJoin::MultipleOption
                         } else {
                             ReferenceJoin::Multiple
@@ -127,47 +157,15 @@ fn impl_references(data_struct: &syn::DataStruct) -> Vec<TokenStream> {
             references.push(quote! {
                 Reference {
                     join: #join.into(),
-                    column_prefix: stringify!(#field_name),
-                    table_name: #field_type::table_name(),
-                    identifiers: #field_type::identifiers(),
-                    other_columns: #field_type::columns(),
+                    to_table_name: #field_type::table_name(),
+                    from_table_name: #name::table_name(),
+                    identifiers: vec![#(#att),*],
+                    all_columns: #field_type::all_columns(),
+                    references: #field_type::references(),
                 }
             });
         }
     }
 
     references
-}
-
-fn get_inner_type<'a>(full_name: &'static str, ty: &'a syn::Type) -> Option<&'a syn::Type> {
-    let syn::Type::Path(ty) = ty else {
-        return None;
-    };
-    if ty.qself.is_some() {
-        return None;
-    }
-
-    let segments = &ty.path.segments;
-
-    let full_name_found = segments
-        .iter()
-        .map(|a| a.ident.to_string())
-        .collect::<Vec<String>>()
-        .join("::");
-    if full_name_found != full_name {
-        return None;
-    }
-
-    let last_segment = segments.last()?;
-    let syn::PathArguments::AngleBracketed(generics) = &last_segment.arguments else {
-        return None;
-    };
-    if generics.args.len() != 1 {
-        return None;
-    }
-    let syn::GenericArgument::Type(inner_type) = &generics.args[0] else {
-        return None;
-    };
-
-    Some(inner_type)
 }
