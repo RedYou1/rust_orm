@@ -5,15 +5,13 @@ use mysql::{
 use rust_query::table::{Column, Queries, Reference, Table};
 use rust_query_mysql::mysqlrow::{MySQLRow, RowFlatten};
 
-// #[derive(Debug, Table, MySQLRow, PartialEq, Eq)]
-// #[table_name("user_info")]
-// struct UserInfo {
-//     #[PrimaryKey]
-//     id: i32,
-//     #[ForeignKey]
-//     user: User,
-//     uuid: String,
-// }
+#[derive(Debug, Table, MySQLRow, PartialEq, Eq, Clone)]
+#[table_name("user_info")]
+struct UserInfo {
+    #[PrimaryKey]
+    id: i32,
+    uuid: Option<String>,
+}
 
 #[derive(Debug, Table, MySQLRow, PartialEq, Eq, Clone)]
 #[table_name("category")]
@@ -29,18 +27,20 @@ struct User {
     #[PrimaryKey]
     id: i32,
     nom: String,
-    #[ForeignKey("id", "user_id")]
-    categories: Vec<CategoryUser>,
+    #[ForeignKey("category_user ON id = user_id", "category_id = id")]
+    categories: Vec<Category>,
+    #[ForeignKey("category_pet ON category.id = category_id", "category_id = id")]
+    pets: Vec<Pet>,
+    #[ForeignKey("id = user_id")]
+    info: UserInfo,
 }
 
 #[derive(Debug, Table, MySQLRow, PartialEq, Eq, Clone)]
-#[table_name("category_user")]
-struct CategoryUser {
+#[table_name("pet")]
+struct Pet {
     #[PrimaryKey]
-    user_id: i32,
-    #[PrimaryKey]
-    #[ForeignKey("category_id", "id")]
-    category: Category,
+    id: i32,
+    nom: String,
 }
 
 pub fn test2(conn: &mut PooledConn) {
@@ -56,32 +56,42 @@ pub fn test2(conn: &mut PooledConn) {
                 id: 1,
                 nom: "A".to_owned(),
                 categories: vec![
-                    CategoryUser {
-                        user_id: 1,
-                        category: Category {
-                            id: 1,
-                            nom: "A".to_owned()
-                        }
+                    Category {
+                        id: 1,
+                        nom: "A".to_owned()
                     },
-                    CategoryUser {
-                        user_id: 1,
-                        category: Category {
-                            id: 2,
-                            nom: "B".to_owned()
-                        }
+                    Category {
+                        id: 2,
+                        nom: "B".to_owned()
                     }
-                ]
+                ],
+                info: UserInfo { id: 1, uuid: None },
+                pets: vec![
+                    Pet {
+                        id: 1,
+                        nom: "A".to_owned()
+                    },
+                    Pet {
+                        id: 2,
+                        nom: "B".to_owned()
+                    },
+                ],
             },
             User {
                 id: 2,
                 nom: "B".to_owned(),
-                categories: vec![CategoryUser {
-                    user_id: 2,
-                    category: Category {
-                        id: 1,
-                        nom: "A".to_owned()
-                    }
-                }]
+                categories: vec![Category {
+                    id: 1,
+                    nom: "A".to_owned()
+                }],
+                info: UserInfo {
+                    id: 2,
+                    uuid: Some("B".to_owned())
+                },
+                pets: vec![Pet {
+                    id: 1,
+                    nom: "A".to_owned()
+                }],
             },
         ]),
         "Failed with:{:?} for {:?}",

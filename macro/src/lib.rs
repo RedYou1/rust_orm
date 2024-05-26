@@ -94,21 +94,11 @@ fn impl_references(name: &Ident, data_struct: &syn::DataStruct) -> Vec<TokenStre
         if let Some(att) = get_attribute(&field.attrs, FOREIGN_KEY).map(|attr| {
             attr.parse_args_with(Punctuated::parse_terminated)
                 .map(|arr: Punctuated<Literal, Token![,]>| {
-                    let a = arr
-                        .into_iter()
+                    arr.into_iter()
                         .map(|a: Literal| {
                             let a = a.to_string();
-                            a.chars().skip(1).take(a.len() - 2).collect()
-                        })
-                        .collect::<Vec<String>>();
-                    assert!(
-                        !(a.is_empty() || a.len() % 2 == 1),
-                        "ForeignKey attribute has the alternate table_id and foreign_id"
-                    );
-                    a.chunks(2)
-                        .map(|chunk| {
-                            let a = format!("{};{}", chunk[0], chunk[1]);
-                            quote! {(#a).to_owned()}
+                            let a = &a[1..=a.len() - 2];
+                            quote! { #a.to_owned() }
                         })
                         .collect::<Vec<TokenStream>>()
                 })

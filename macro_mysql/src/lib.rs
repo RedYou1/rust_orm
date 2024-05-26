@@ -100,7 +100,11 @@ fn from_row(table_name: &str, data_struct: &syn::DataStruct) -> (Vec<TokenStream
             }
             if has_vec {
                 flattens.push(quote!{
-                    r.#field_name.extend(s.#field_name.clone());
+                    for ss in &s.#field_name {
+                        if !r.#field_name.contains(ss) {
+                            r.#field_name.push(ss.clone());
+                        }
+                    }
                 });
                 quote! { #field_name: vec![#field_type::from_row_ref(row)?] }
             } else {

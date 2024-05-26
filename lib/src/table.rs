@@ -50,6 +50,58 @@ pub trait Queries {
     fn select_all() -> Select;
 }
 
+fn parse_reference(
+    table_name: &mut String,
+    to_table_name: &str,
+    prev_reference: Option<&str>,
+    reference: &str,
+) -> String {
+    let prev_table_name = prev_reference
+        .and_then(|pr| pr.split_once(" ON "))
+        .map_or(table_name.as_ref(), |(table_name, _)| table_name);
+    let mut reference: Vec<&str> = reference.split(" ON ").collect();
+    if reference.len() == 1 {
+        reference.insert(0, to_table_name);
+    }
+    assert!(
+        reference.len() == 2,
+        "Wrong format for reference on ForeignKey"
+    );
+    let [to_table_name, cols] = reference[0..2] else {
+        panic!("Never Happening")
+    };
+    let cols: Vec<&str> = cols.split_whitespace().collect();
+    let mut col_table_name = false;
+    let cols = cols.chunks_exact(2);
+    let c = if cols.remainder()[0].contains('.') {
+        cols.remainder()[0].to_owned()
+    } else {
+        format!("{to_table_name}.{}", cols.remainder()[0])
+    };
+    let cols: String = cols
+        .map(|strs| {
+            col_table_name = !col_table_name;
+            if strs[0].contains('.') {
+                format!("{} {}", strs[0], strs[1],)
+            } else {
+                format!(
+                    "{}.{} {}",
+                    if col_table_name {
+                        prev_table_name
+                    } else {
+                        to_table_name
+                    },
+                    strs[0],
+                    strs[1],
+                )
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ");
+    *table_name = to_table_name.to_owned();
+    format!("{to_table_name} ON {cols} {c}")
+}
+
 impl<T: Table> Queries for T {
     fn all_columns() -> HashMap<&'static str, Vec<Column>> {
         let mut columns = HashMap::new();
@@ -73,35 +125,44 @@ impl<T: Table> Queries for T {
 
         while !todo.is_empty() {
             let reference = todo.first().expect("Just checked").clone();
+            let mut table_name = reference.from_table_name.to_owned();
+            let ref_type = if ((reference.join as u8)
+                & ((ReferenceJoin::ExaclyOne as u8) | (ReferenceJoin::Multiple as u8)))
+                == 0
+            {
+                "LEFT"
+            } else {
+                "INNER"
+            };
             results.push(format!(
-                "{} JOIN {} ON {}",
-                if ((reference.join as u8)
-                    & ((ReferenceJoin::ExaclyOne as u8) | (ReferenceJoin::Multiple as u8)))
-                    == 0
-                {
-                    "LEFT"
-                } else {
-                    "INNER"
-                },
-                reference.to_table_name,
+                "{ref_type} JOIN {}",
+                parse_reference(
+                    &mut table_name,
+                    reference.to_table_name,
+                    None,
+                    reference
+                        .identifiers
+                        .first()
+                        .expect("Need at least one referece in the foreign key"),
+                )
+            ));
+            results.extend(
                 reference
                     .identifiers
-                    .iter()
-                    .map(|column| {
-                        let (c1, c2) = column
-                            .split_once(';')
-                            .expect("Reference identifiers is in the format col1;col2");
+                    .windows(2)
+                    .map(|refs| {
                         format!(
-                            "{}.{} = {}.{}",
-                            reference.to_table_name,
-                            c2,
-                            reference.from_table_name,
-                            c1,
+                            "{ref_type} JOIN {}",
+                            parse_reference(
+                                &mut table_name,
+                                reference.to_table_name,
+                                Some(refs[0].as_str()),
+                                refs[1].as_str(),
+                            )
                         )
                     })
-                    .collect::<Vec<String>>()
-                    .join(" AND ")
-            ));
+                    .collect::<Vec<String>>(),
+            );
             for ref2 in &reference.references {
                 if done.contains(ref2) || todo.contains(ref2) {
                     continue;
